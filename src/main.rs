@@ -1,3 +1,5 @@
+use colored::*;
+
 const BLOCK_SIZE: usize = 24;
 const EXTENDED_W_SIZE: usize = 30;
 const TOTAL_ROUNDS: usize = 30;
@@ -5,11 +7,37 @@ const F_CONSTANTS:   [u32; 3] = [0xFE887401, 0x44C38316, 0x21221602];
 const INITIAL_STATE: [u32; 4] = [0x5AC24860, 0xDA545106, 0x716ADFDB, 0x4DA893CC];
 
 fn main() {
-    let expected_hash = "D6 25 F3 C2 59 B7 7B 18 5B 2D 37 FB A3 F2 B4 FD";
-    let calculated_hash = hash_message("");
+    run_hash_tests();
+}
 
-    println!("Expected:\t{}", expected_hash);
-    println!("Calculated:\t{}", format_hash(&calculated_hash));
+fn run_hash_tests() {
+    println!("Running hash tests...\n");
+
+    let a_48000 = "a".repeat(48000);
+    let a_48479 = "a".repeat(48479);
+    let a_48958: String = "a".repeat(48958);
+    
+    let test_cases = vec![
+        ("", "D6 25 F3 C2 59 B7 7B 18 5B 2D 37 FB A3 F2 B4 FD"),
+        ("AbCxYz", "6C 9A BE 55 99 76 89 7E 50 22 49 F3 4E 02 86 13"),
+        ("1234567890", "AE A3 7E 2D 47 1B 11 33 62 16 43 55 70 6B 2E 0A"),
+        ("Ala ma kota, kot ma ale.", "CA 3D 4E E7 E2 49 BC 6A 83 5A F6 D8 1A 47 BC 18"),
+        ("Ty, ktory wchodzisz, zegnaj sie z nadzieja.", "C4 08 85 6C 1A CA EC 4A 77 CF 9B 48 8D 0A 99 38"),
+        ("Litwo, Ojczyzno moja! ty jestes jak zdrowie;", "70 56 97 1F 29 EE C0 81 1E F2 EA E8 61 91 72 DC"),
+        (&a_48000, "76 B5 92 8C B3 F7 E1 FA 18 65 FA AA 35 9A CB AB"),
+        (&a_48479, "96 3C E9 F8 EA 72 65 F9 EC 17 9A 5E CE E1 4D 62"),
+        (&a_48958, "7D 50 64 ED 2A 8B 39 9D CE F1 34 E7 51 E9 4F EB"),
+    ];
+
+    for (input, expected_hash) in test_cases {
+        let calculated_hash = hash_message(input);
+        let formatted_hash = format_hash(&calculated_hash);
+
+        println!("Expected:\t{}", expected_hash);
+        println!("Calculated:\t{}", formatted_hash);
+        println!("Test result:\t{}\n", if expected_hash == formatted_hash 
+            { "Passed".green() } else { "Failed".red() });
+    }
 }
 
 fn hash_message(message: &str) -> Vec<u8> {
