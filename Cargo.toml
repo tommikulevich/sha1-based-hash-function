@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 colored = "1.9.4"
+rayon = "1.5.1"
