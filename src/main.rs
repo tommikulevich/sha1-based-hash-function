@@ -1,29 +1,56 @@
 use std::time;
 use std::path::Path;
-use std::io::{self, Write};
-use std::fs::{self, OpenOptions};
+use std::io::{self, Write, BufRead, BufReader};
+use std::fs::{self, OpenOptions, File};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::env;
 
 use rayon::prelude::*;
 use colored::*;
 
-const RESULTS_TXT_PATH: &str = "data/results.txt";
+const RESULTS_ATACK_PATH: &str = "data/atack_results.txt";
 
 const BLOCK_SIZE: usize = 24;
 const EXTENDED_W_SIZE: usize = 30;
 const TOTAL_ROUNDS: usize = 30;
 const F_CONSTANTS:   [u32; 3] = [0xFE887401, 0x44C38316, 0x21221602];
 const INITIAL_STATE: [u32; 4] = [0x5AC24860, 0xDA545106, 0x716ADFDB, 0x4DA893CC];
-const CHARSET: &str = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890!@#$%^&*-_=+([{<)]}>'\";:?,.\\/|";
 
 fn main() {
-    run_hash_tests();
-    run_brute_force();
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-t" => {
+                run_tests();
+                return;
+            }
+            "-a" => {
+                if let Some(path) = args.next() {
+                    run_attack(&path);
+                } else {
+                    eprintln!("Error: -a requires a file path");
+                }
+                return;
+            }
+            _ => {
+                eprintln!("Unknown argument: {}", arg);
+                return;
+            }
+        }
+    }
+
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line.unwrap();
+        let hash = hash_message(&line);
+        let formatted_hash = format_hash(&hash);
+        println!("{}", formatted_hash);
+    }
 }
 
-fn run_hash_tests() {
+fn run_tests() {
     println!("Running hash tests...\n");
 
     let a_48000 = "a".repeat(48000);
@@ -135,31 +162,36 @@ fn format_hash(hash: &[u8]) -> String {
     hash.iter().map(|byte| format!("{:02X} ", byte)).collect::<Vec<String>>().join("").trim().to_string()
 }
 
-fn run_brute_force() {
+fn run_attack(path: &str) {
     println!("Running brute force tests...\n");
 
-    let test_cases = vec![
-        (2, "4C 70 26 4E 7F CF 0A 22 36 1F 88 82 1A B6 2E 9C"),
-        (3, "DE 89 77 CD 54 E2 E3 F8 BA 7B 24 52 C2 5B F8 7C"),
-        (4, "0A C4 CD 92 F3 2D 85 67 D5 50 61 D1 E8 EF C5 DC"),
-        (5, "50 B9 AB 36 A6 F5 12 76 0B C2 BD 24 1F BD D3 81"),
-        (6, "AA 7B 65 96 9E AE D1 88 7E AD 35 22 F2 CC 81 2B"),
-        (7, "9D 55 D8 B0 CC EE 6A 68 F0 8F DA 63 8F E2 CB 79"),
-        (8, "69 76 EA E1 ED 1B 1F 6A 5C 0B B8 34 B9 47 95 59"),
-    ];
+    let file = File::open(path).expect("Could not open test cases file");
+    let mut reader = BufReader::new(file);
 
-    for (message_length, expected_hash) in test_cases {
-        let target_hash = parse_hex_string(expected_hash);
+    let mut charset = String::new();
+    reader.read_line(&mut charset).expect("Failed to read charset");
+    let charset = charset.trim();
 
-        match find_message_by_hash(&target_hash, message_length, CHARSET) {
+    let mut line = String::new();
+    while reader.read_line(&mut line).expect("Failed to read line") > 0 {
+        let length = line.trim().parse::<usize>().expect("Failed to parse length");
+        
+        line.clear();
+        reader.read_line(&mut line).expect("Failed to read hash line");
+        let hash = line.trim();
+        let target_hash = parse_hex_string(hash);
+
+        match find_message_by_hash(&target_hash, length, charset) {
             Some(found_message) => {
-                println!("({}) Message found: {}", message_length, found_message.green());
-                if let Err(e) = write_result_to_file(RESULTS_TXT_PATH, &found_message) {
+                println!("({}) Message found: {}", length, found_message.green());
+                if let Err(e) = write_result_to_file(RESULTS_ATACK_PATH, &found_message) {
                     eprintln!("Could not write result to file: {}", e);
                 }
             },
-            None => println!("({}) No message found with the given hash", message_length),
+            None => println!("({}) No message found with the given hash", length),
         }
+        
+        line.clear();
     }
 }
 
@@ -189,8 +221,11 @@ fn timestamp() -> String {
 }
 
 fn parse_hex_string(hex_string: &str) -> Vec<u8> {
-    hex_string.split_whitespace()
-        .filter_map(|s| u8::from_str_radix(s, 16).ok())
+    hex_string.as_bytes()
+        .chunks(2)
+        .filter_map(|chunk| {
+            std::str::from_utf8(chunk).ok().and_then(|s| u8::from_str_radix(s, 16).ok())
+        })
         .collect()
 }
 
