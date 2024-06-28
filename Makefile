@@ -1,9 +1,9 @@
 NVCC      := nvcc
 CUDAFLAGS := -arch=sm_86 -O3 -lineinfo -use_fast_math -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -Werror
-RUN_ARGS  := data/atack_cases.txt
+RUN_ARGS  := data/attack_cases.txt
 
-TARGET    := target/atack
-SRC       := src/atack.cu
+TARGET    := target/attack
+SRC       := src/attack.cu
 
 all: $(TARGET)
 

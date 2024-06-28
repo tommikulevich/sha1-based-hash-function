@@ -1,16 +1,8 @@
-use std::time;
-use std::path::Path;
-use std::io::{self, Write, BufRead, BufReader};
-use std::fs::{self, OpenOptions, File};
+use std::io::{self, BufRead};
 use std::convert::TryInto;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::env;
 
-use rayon::prelude::*;
 use colored::*;
-
-const RESULTS_ATACK_PATH: &str = "data/atack_results.txt";
 
 const BLOCK_SIZE: usize = 24;
 const EXTENDED_W_SIZE: usize = 30;
@@ -24,14 +16,6 @@ fn main() {
         match arg.as_str() {
             "-t" => {
                 run_tests();
-                return;
-            }
-            "-a" => {
-                if let Some(path) = args.next() {
-                    run_attack(&path);
-                } else {
-                    eprintln!("Error: -a requires a file path");
-                }
                 return;
             }
             _ => {
@@ -160,112 +144,4 @@ fn process_round(i: usize, a: u32, b: u32, c: u32, d: u32, wi: u32) -> u32 {
 
 fn format_hash(hash: &[u8]) -> String {
     hash.iter().map(|byte| format!("{:02X} ", byte)).collect::<Vec<String>>().join("").trim().to_string()
-}
-
-fn run_attack(path: &str) {
-    println!("Running brute force tests...\n");
-
-    let file = File::open(path).expect("Could not open test cases file");
-    let mut reader = BufReader::new(file);
-
-    let mut charset = String::new();
-    reader.read_line(&mut charset).expect("Failed to read charset");
-    let charset = charset.trim();
-
-    let mut line = String::new();
-    while reader.read_line(&mut line).expect("Failed to read line") > 0 {
-        let length = line.trim().parse::<usize>().expect("Failed to parse length");
-        
-        line.clear();
-        reader.read_line(&mut line).expect("Failed to read hash line");
-        let hash = line.trim();
-        let target_hash = parse_hex_string(hash);
-
-        match find_message_by_hash(&target_hash, length, charset) {
-            Some(found_message) => {
-                println!("({}) Message found: {}", length, found_message.green());
-                if let Err(e) = write_result_to_file(RESULTS_ATACK_PATH, &found_message) {
-                    eprintln!("Could not write result to file: {}", e);
-                }
-            },
-            None => println!("({}) No message found with the given hash", length),
-        }
-        
-        line.clear();
-    }
-}
-
-fn write_result_to_file(path: &str, line: &String) -> io::Result<()> {
-    if let Some(parent) = Path::new(path).parent() {
-        fs::create_dir_all(parent)?; 
-    }
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(true)
-        .open(path)?;
-
-    let ts = timestamp();
-    writeln!(file, "[{}] {}", ts, line)?;
-
-    Ok(())
-}
-
-fn timestamp() -> String {
-    let start = time::SystemTime::now();
-    let datetime = start
-        .duration_since(time::UNIX_EPOCH)
-        .expect("SystemTime before UNIX EPOCH!");
-    format!("{}", datetime.as_secs())
-}
-
-fn parse_hex_string(hex_string: &str) -> Vec<u8> {
-    hex_string.as_bytes()
-        .chunks(2)
-        .filter_map(|chunk| {
-            std::str::from_utf8(chunk).ok().and_then(|s| u8::from_str_radix(s, 16).ok())
-        })
-        .collect()
-}
-
-fn find_message_by_hash(target_hash: &[u8], message_length: usize, charset: &str) -> Option<String> {
-    let charset_bytes = charset.as_bytes();
-    let result = Arc::new(Mutex::new(None));
-    let found = Arc::new(AtomicBool::new(false));
-
-    charset_bytes.par_iter().for_each(|&start_char| {
-        if found.load(Ordering::Relaxed) {
-            return; 
-        }
-
-        let current = vec![start_char];
-        generate_and_check(&current, charset_bytes, message_length, target_hash, &result, &found);
-    });
-
-    let lock = result.lock().unwrap();
-    lock.clone()
-}
-
-fn generate_and_check(current: &Vec<u8>, charset: &[u8], target_len: usize, 
-        target_hash: &[u8], result: &Arc<Mutex<Option<String>>>, found: &Arc<AtomicBool>) {
-    if found.load(Ordering::Relaxed) {
-        return; 
-    }
-
-    if current.len() == target_len {
-        if hash_message_bytes(current) == target_hash {
-            let found_message = String::from_utf8_lossy(current).to_string();
-            let mut res = result.lock().unwrap();
-            *res = Some(found_message);
-            found.store(true, Ordering::Relaxed);
-            return;
-        }
-    } else if current.len() < target_len {
-        for &next_char in charset.iter() {
-            let mut new_current = current.clone();
-            new_current.push(next_char);
-            generate_and_check(&new_current, charset, target_len, target_hash, result, found);
-        }
-    }
 }
